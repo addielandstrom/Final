@@ -1,0 +1,27 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+#map {
+    height: 100vh;
+    width: 100vw;
+}
+
+#map-title {
+    position: absolute;
+    top: 20px;              /* distance from top */
+    left: 50%;              /* move to horizontal center */
+    transform: translateX(-50%);  /* true centering */
+    
+    background: rgba(255,255,255,0.9);
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 22px;
+    font-weight: bold;
+    font-family: Arial, sans-serif;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+
+    z-index: 1000;          /* ensures it stays above map */
+}

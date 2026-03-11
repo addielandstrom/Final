@@ -9,7 +9,7 @@ L.tileLayer(
 // GLOBAL VARIABLES
 var chinatownLayer;
 var geojsonData;
-var selectedVariable = "chinese_pop";
+var selectedVariable = "none";
 var compareMode = false;
 var selectedFeatures = [];
 

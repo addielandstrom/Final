@@ -6,14 +6,15 @@ L.tileLayer(
 { maxZoom: 18 }
 ).addTo(map);
 
-// GLOBAL VARIABLES
+// Global Variables
 var chinatownLayer;
 var geojsonData;
 var selectedVariable = "none";
 var compareMode = false;
 var selectedFeatures = [];
+var proportionalVariable = "none";
 
-// CONTROL PANEL
+// Control Panel
 var controlPanel = L.control({ position: 'topright' });
 
 controlPanel.onAdd = function (map) {
@@ -30,16 +31,28 @@ div.innerHTML = `
 
     <hr>
 
-    <b>Visualize Data</b><br>
+    <b>Variable 1: Choropleth </b><br>
     <select id="variableSelect" style="width:100%; margin-bottom:6px;">
-        <option value="none">None (Default Points)</option>
+        <option value="none">None (Default Color)</option>
         <option value="chinese_pop">% Chinese</option>
         <option value="asian">% Asian</option>
         <option value="foreign_pop">% Foreign Born</option>
         <option value="asianlang_household">% Asian Language Households</option>
         <option value="limited_eng_households">% Limited English</option>
         <option value="nr_median_house_income">Median Household Income</option>
-        <option value="nr_median_rent">Rent Burden</option>
+        <option value="nr_median_rent">% Rent Burden</option>
+    </select>
+
+    <b>Variable 2: Proportional Symbols</b><br>
+        <select id="proportionalSelect" style="width:100%; margin-bottom:6px;">
+            <option value="none">None (Fixed Size)</option>
+            <option value="chinese_pop">% Chinese</option>
+            <option value="asian">% Asian</option>
+            <option value="foreign_pop">% Foreign Born</option>
+            <option value="asianlang_household">% Asian Language Households</option>
+            <option value="limited_eng_households">% Limited English</option>
+            <option value="nr_median_house_income">Median Household Income</option>
+            <option value="nr_median_rent">% Rent Burden</option>
     </select>
 
     <button onclick="updateVisualization()" style="width:100%;">Update Map</button>
@@ -78,10 +91,12 @@ div.innerHTML = `
     <div style="text-align:center; font-weight:bold;"
          id="yearDisplay">2025</div>
 
-    <label style="display:block; margin-top:6px;">
-        <input type="checkbox" id="openFilter">
-        Only show active Chinatowns
-    </label>
+    <b>Active Status</b><br>
+        <select id="statusFilter" style="width:100%; margin-bottom:6px;">
+            <option value="">All</option>
+            <option value="active">Active Only</option>
+            <option value="inactive">Inactive Only</option>
+        </select>
 
     <button onclick="applyFilters()" style="width:100%; margin-top:6px;">
         Apply
@@ -105,8 +120,6 @@ div.innerHTML = `
 
     <div id="comparisonResult" style="margin-top:8px; font-size:13px;"></div>
 
-    <canvas id="comparisonChart" width="220" height="180" style="margin-top:8px;"></canvas>
-
 </div>
 `;
 
@@ -117,52 +130,73 @@ return div;
 
 controlPanel.addTo(map);
 
-// COLOR SCALE
+// Color Scale
 function getColor(value) {
 
-if (value == null) return "#cccccc";
+    if (value == null) return "#cccccc";
 
-if (value > 40) return "#800026";
-if (value > 25) return "#BD0026";
-if (value > 15) return "#E31A1C";
-if (value > 10) return "#FC4E2A";
-if (value > 5) return "#FD8D3C";
-if (value > 2) return "#FEB24C";
-
-return "#FED976";
-
-}
-
-// POINT STYLE
-function stylePoints(feature, latlng) {
-
-    // If "None" is selected → default style
-    if (selectedVariable === "none") {
-
-        return L.circleMarker(latlng, {
-            radius: 7,
-            fillColor: "#ff6600",
-            color: "#333",
-            weight: 1,
-            fillOpacity: 0.9
-        });
-
+    if (selectedVariable === "nr_median_house_income") {
+        return value > 120000 ? "#800026" :
+               value > 100000 ? "#BD0026" :
+               value > 80000 ? "#E31A1C" :
+               value > 60000 ? "#FC4E2A" :
+               value > 40000 ? "#FD8D3C" :
+               value > 20000 ? "#FEB24C" :
+                               "#FED976";
     }
 
-    // Otherwise color by data
-    var value = feature.properties[selectedVariable];
+    // Default (percent)
+    return value > 40 ? "#800026" :
+           value > 25 ? "#BD0026" :
+           value > 15 ? "#E31A1C" :
+           value > 10 ? "#FC4E2A" :
+           value > 5 ? "#FD8D3C" :
+           value > 2 ? "#FEB24C" :
+                        "#FED976";
+}
+
+function getRadius(value, variable) {
+    if (value == null) return 5; // default small radius
+
+    if (variable === "nr_median_house_income") {
+        // Scale income smaller so 30k–40k isn't huge
+        return 7 + (value / 8000); 
+    }
+
+    // Percentages (0–100)
+    return 5 + (value / 6); 
+}
+
+// Point Style
+function stylePoints(feature, latlng) {
+
+    var colorValue = feature.properties[selectedVariable];
+    var sizeValue = feature.properties[proportionalVariable];
+
+    // Default radius
+    var radius = (proportionalVariable === "none")
+    ? 7
+    : getRadius(sizeValue, proportionalVariable);
+
 
     return L.circleMarker(latlng, {
-        radius: 7,
-        fillColor: getColor(value),
+
+        radius: radius,
+
+        fillColor:
+            selectedVariable === "none"
+                ? "#ff6600"
+                : getColor(colorValue),
+
         color: "#333",
         weight: 1,
         fillOpacity: 0.9
+
     });
 
 }
 
-// LOAD GEOJSON
+// Load GeoJSON
 fetch('data/JoinedChinatowns.geojson')
 .then(response => response.json())
 .then(data => {
@@ -174,10 +208,12 @@ fetch('data/JoinedChinatowns.geojson')
         onEachFeature: createPopup
     }).addTo(map);
 
+    updateLegends();
+
 })
 .catch(error => console.error("Error loading GeoJSON:", error));
 
-// POPUPS
+// Popups
 function createPopup(feature, layer) {
 
 var p = feature.properties;
@@ -236,24 +272,28 @@ layer.on("click", function () {
 
 }
 
-// UPDATE VISUALIZATION
 function updateVisualization() {
 
-selectedVariable =
-    document.getElementById("variableSelect").value;
+    selectedVariable =
+        document.getElementById("variableSelect").value;
 
-if (chinatownLayer) {
-    map.removeLayer(chinatownLayer);
+    proportionalVariable =
+        document.getElementById("proportionalSelect").value;
+
+    if (chinatownLayer) {
+        map.removeLayer(chinatownLayer);
+    }
+
+    chinatownLayer = L.geoJSON(geojsonData, {
+        pointToLayer: stylePoints,
+        onEachFeature: createPopup
+    }).addTo(map);
+
+    updateLegends();
+
 }
 
-chinatownLayer = L.geoJSON(geojsonData, {
-    pointToLayer: stylePoints,
-    onEachFeature: createPopup
-}).addTo(map);
-
-}
-
-// SEARCH
+// Search
 function searchChinatown() {
 
 var searchText =
@@ -273,81 +313,85 @@ chinatownLayer.eachLayer(function (layer) {
 
 }
 
-// FILTERS
-function applyFilters() {
+// FIitlers
+function applyFilters() { 
 
-var selectedYear =
-    document.getElementById("yearSlider").value;
+    var selectedYear = document.getElementById("yearSlider").value; 
+    var layerValue = document.getElementById("layerFilter").value; 
+    var statusValue = document.getElementById("statusFilter").value; // ✅ NEW
 
-var layerValue =
-    document.getElementById("layerFilter").value;
+    document.getElementById("yearDisplay").innerText = selectedYear; 
+        
+    if (chinatownLayer) { 
+        map.removeLayer(chinatownLayer); 
+    } 
 
-document.getElementById("yearDisplay").innerText =
-    selectedYear;
+    chinatownLayer = L.geoJSON(geojsonData, { 
 
-if (chinatownLayer) {
-    map.removeLayer(chinatownLayer);
+        filter: function (feature) { 
+
+            var description = feature.properties.Description || ""; 
+            var layerType = feature.properties.layer || ""; 
+
+            // Year Filter
+            var match = description.match(/\d{4}/); 
+            var establishedYear = match ? parseInt(match[0]) : null; 
+
+            var matchesYear = true; 
+            if (establishedYear) { 
+                matchesYear = establishedYear <= parseInt(selectedYear); 
+            } 
+
+            // Type Filter
+            var matchesLayer = true; 
+            if (layerValue) { 
+                matchesLayer = layerType === layerValue; 
+            } 
+
+            // Status Filter
+            var isActive = description.includes("Present"); 
+
+            var matchesStatus = true; 
+
+            if (statusValue === "active") { 
+                matchesStatus = isActive; 
+            } else if (statusValue === "inactive") { 
+                matchesStatus = !isActive; 
+            } 
+
+            // Final Filter
+            return matchesYear && matchesLayer && matchesStatus; 
+        }, 
+
+        pointToLayer: stylePoints, 
+        onEachFeature: createPopup 
+
+    }).addTo(map); 
 }
-
-chinatownLayer = L.geoJSON(geojsonData, {
-
-    filter: function (feature) {
-
-        var description =
-            feature.properties.Description || "";
-
-        var layerType =
-            feature.properties.layer || "";
-
-        var match = description.match(/\d{4}/);
-
-        var establishedYear =
-            match ? parseInt(match[0]) : null;
-
-        var matchesYear = true;
-
-        if (establishedYear) {
-            matchesYear =
-                establishedYear <= parseInt(selectedYear);
-        }
-
-        var matchesLayer = true;
-
-        if (layerValue) {
-            matchesLayer =
-                layerType === layerValue;
-        }
-
-        return matchesYear && matchesLayer;
-    },
-
-    pointToLayer: stylePoints,
-    onEachFeature: createPopup
-
-}).addTo(map);
-
-}
-
-// RESET
+// Reset
 function resetFilters() {
 
-document.getElementById("yearSlider").value = 2025;
-document.getElementById("yearDisplay").innerText = 2025;
-document.getElementById("layerFilter").value = "";
-document.getElementById("openFilter").checked = false;
+    document.getElementById("yearSlider").value = 2025;
+    document.getElementById("yearDisplay").innerText = 2025;
+    document.getElementById("layerFilter").value = "";
+    document.getElementById("statusFilter").value = ""; //
+    document.getElementById("searchInput").value = "";
 
-if (chinatownLayer) {
-    map.removeLayer(chinatownLayer);
+    // Reset map view
+    map.setView([39.5, -98.35], 4);  
+
+    // Reset layer
+    if (chinatownLayer) {
+        map.removeLayer(chinatownLayer);
+    }
+
+    chinatownLayer = L.geoJSON(geojsonData, {
+        pointToLayer: stylePoints,
+        onEachFeature: createPopup
+    }).addTo(map);
 }
 
-chinatownLayer = L.geoJSON(geojsonData, {
-    pointToLayer: stylePoints,
-    onEachFeature: createPopup
-}).addTo(map);
-
-}
-
-// YEAR SLIDER
+// Year slider
 document.addEventListener("input", function (e) {
 
 if (e.target && e.target.id === "yearSlider") {
@@ -360,7 +404,7 @@ if (e.target && e.target.id === "yearSlider") {
 
 });
 
-// TYPE DESCRIPTIONS
+// Type description
 function updateTypeDescription() {
 
 var selected =
@@ -407,102 +451,183 @@ function startComparison() {
 
 }
 
+// Add chart control once at the start, hidden initially
+var chartControl = L.control({ position: 'bottomleft' });
+
+chartControl.onAdd = function () {
+    var div = L.DomUtil.create('div', 'info legend');
+    div.style.display = "none"; 
+    div.id = "chartContainer";
+    div.innerHTML = `<canvas id="comparisonChart" width="220" height="180"></canvas>`;
+    return div;
+};
+
+chartControl.addTo(map);
+
 function showComparison() {
+
+    var chartDiv = document.getElementById("chartContainer");
+    chartDiv.style.display = "block";
 
     var a = selectedFeatures[0].properties;
     var b = selectedFeatures[1].properties;
 
-    var html =
-        "<b>" + a.Name + "</b> vs <b>" + b.Name + "</b>";
-
-    document.getElementById("comparisonResult").innerHTML = html;
-
-
-    var dataA = [
-        a.chinese_pop,
-        a.asian,
-        a.foreign_pop,
-        a.asianlang_household,
-        a.limited_eng_households
+    // Show all variables
+    var fields = [
+        "chinese_pop",
+        "asian",
+        "foreign_pop",
+        "asianlang_household",
+        "limited_eng_households",
+        "nr_median_rent"
     ];
 
-    var dataB = [
-        b.chinese_pop,
-        b.asian,
-        b.foreign_pop,
-        b.asianlang_household,
-        b.limited_eng_households
-    ];
+    var dataA = fields.map(f => a[f]);
+    var dataB = fields.map(f => b[f]);
+
+    var labels = fields.map(f =>
+        f.replace(/_/g, " ")
+         .replace("nr ", "")
+         .replace("household", "")
+         .trim()
+    );
+
+    document.getElementById("comparisonResult").innerHTML =
+        `<b>${a.Name}</b> vs <b>${b.Name}</b>`;
 
     var ctx = document.getElementById("comparisonChart").getContext("2d");
 
-    if (window.compareChart) {
-        window.compareChart.destroy();
-    }
+    if (window.compareChart) window.compareChart.destroy();
 
     window.compareChart = new Chart(ctx, {
-
         type: "bar",
-
         data: {
-
-            labels: [
-                "% Chinese",
-                "% Asian",
-                "% Foreign Born",
-                "% Asian Language",
-                "% Limited English"
-            ],
-
+            labels: labels,
             datasets: [
-
-                {
-                    label: a.Name,
-                    data: dataA
-                },
-
-                {
-                    label: b.Name,
-                    data: dataB
-                }
-
+                { label: a.Name, data: dataA },
+                { label: b.Name, data: dataB }
             ]
         },
-
         options: {
-
             responsive: false,
-
-            plugins: {
-                legend: {
-                    position: "bottom"
-                }
-            },
-
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100
-                }
+            plugins: { legend: { position: "bottom" } },
+            scales: { 
+                y: { 
+                    beginAtZero: true
+                    
+                } 
             }
         }
-
     });
-
 }
 
 function resetComparison() {
-
     compareMode = false;
     selectedFeatures = [];
 
-    document.getElementById("comparisonResult").innerHTML = "";
+    // Hide chart
+    var chartDiv = document.getElementById("chartContainer");
+    chartDiv.style.display = "none";
 
     if (window.compareChart) {
         window.compareChart.destroy();
     }
 
+    document.getElementById("comparisonResult").innerHTML = "";
 }
 
+var colorLegend = L.control({ position: 'bottomleft' });
 
+colorLegend.onAdd = function () {
 
+    var div = L.DomUtil.create('div', 'info legend');
+
+    // Set grades depending on variable
+    var grades, isPercent;
+
+    if (selectedVariable === "nr_median_house_income") {
+        grades = [10000, 20000, 30000, 40000, 50000];
+        isPercent = false;
+    } else {
+        grades = [0, 2, 5, 10, 15, 25, 40];
+        isPercent = true;
+    }
+
+    // Map variable to readable label
+    var labelMap = {
+        chinese_pop: "% Chinese",
+        asian: "% Asian",
+        foreign_pop: "% Foreign Born",
+        asianlang_household: "% Asian Language",
+        limited_eng_households: "% Limited English",
+        nr_median_house_income: "Median Income ($)",
+        nr_median_rent: "Rent Burden (%)"
+    };
+
+    div.innerHTML += "<b>" + (labelMap[selectedVariable] || "Legend") + "</b><br>";
+
+    for (var i = 0; i < grades.length; i++) {
+        div.innerHTML +=
+            '<i style="background:' + getColor(grades[i] + 1) + '"></i> ' +
+            (isPercent ? grades[i] + "%" : "$" + grades[i]) +
+            (grades[i + 1]
+                ? '&ndash;' + (isPercent ? grades[i + 1] + "%" : "$" + grades[i + 1]) + '<br>'
+                : '+');
+    }
+
+    return div;
+};
+
+var sizeLegend = L.control({ position: 'bottomleft' });
+
+sizeLegend.onAdd = function () {
+
+    var div = L.DomUtil.create('div', 'info legend');
+
+    var labelMap = {
+    chinese_pop: "% Chinese",
+    asian: "% Asian",
+    foreign_pop: "% Foreign Born",
+    asianlang_household: "% Asian Language",
+    limited_eng_households: "% Limited English",
+    nr_median_house_income: "Median Income ($)",
+    nr_median_rent: "Rent Burden (%)"
+    };
+
+    div.innerHTML += "<b>" + (labelMap[proportionalVariable] || "Circle Size") + "</b><br>";
+
+    var values = proportionalVariable === "nr_median_house_income"
+    ? [2000, 8000, 30000, 70000]
+    : [10, 25, 50, 100];
+
+    values.forEach(function (val) {
+
+    var radius = getRadius(val, proportionalVariable);
+    var isPercent = proportionalVariable !== "nr_median_house_income";
+
+    div.innerHTML +=
+        '<div style="display:flex; align-items:center; margin-bottom:4px;">' +
+        '<div style="width:' + (radius * 2) + 'px; height:' + (radius * 2) +
+        'px; border-radius:50%; background:#999; opacity:0.7; margin-right:8px;"></div>' +
+        (isPercent ? val + "%" : "$" + val) +
+        '</div>';
+
+    });
+
+    return div;
+};
+
+function updateLegends() {
+
+    map.removeControl(colorLegend);
+    map.removeControl(sizeLegend);
+
+    if (selectedVariable !== "none") {
+        colorLegend.addTo(map);
+    }
+
+    if (proportionalVariable !== "none") {
+        sizeLegend.addTo(map);
+    }
+
+}
